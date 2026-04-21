@@ -217,14 +217,24 @@ function handleNewPost() {
   if (!content) return showFlash('write-flash', 'Content is required.');
   if (content.length < 10) return showFlash('write-flash', 'Content is too short.');
 
-  DB.posts.push({
-    id:       Date.now(),
-    user_id:  DB.currentUser.id,
-    username: DB.currentUser.username,
-    title,
-    content,
-    date:     new Date().toISOString().slice(0, 10)
-  });
+  // Instead of DB.posts.push(...)
+async function handleNewPost() {
+    const title = document.getElementById('post-title').value.trim();
+    const content = document.getElementById('post-content').value.trim();
+
+    await fetch('/api/posts', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            username: DB.currentUser.username,
+            title,
+            content,
+            date: new Date().toISOString().slice(0, 10)
+        })
+    });
+
+    showPage('page-dashboard');
+}
 
   // clear the form
   document.getElementById('post-title').value   = '';
