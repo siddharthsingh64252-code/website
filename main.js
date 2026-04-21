@@ -1,12 +1,14 @@
 // ============================================================
-// INKWELL — main.js  (PostgreSQL backend version)
+// INKWELL — main.js
+// All JavaScript for the entire app lives here
 // ============================================================
 
 // -----------------------------------------------------------
-// 1. DATA STORE — only currentUser lives in memory now
-//    everything else is fetched from the PostgreSQL backend
+// 1. DATA STORE
 // -----------------------------------------------------------
 const DB = {
+  users: [],
+  posts: [],
   currentUser: null
 };
 
@@ -49,7 +51,7 @@ function showFlash(containerId, message, type = 'error') {
 // -----------------------------------------------------------
 // 4. SIGNUP
 // -----------------------------------------------------------
-async function handleSignup() {
+function handleSignup() {
   const username = document.getElementById('signup-username').value.trim();
   const email    = document.getElementById('signup-email').value.trim();
   const password = document.getElementById('signup-password').value;
@@ -63,59 +65,39 @@ async function handleSignup() {
   if (password.length < 6)
     return showFlash('signup-flash', 'Password must be at least 6 characters.');
 
-  try {
-    const res = await fetch('/api/signup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username,
-        email,
-        password,
-        joined: new Date().toISOString().slice(0, 10)
-      })
-    });
+  const exists = DB.users.find(u => u.username === username || u.email === email);
+  if (exists)
+    return showFlash('signup-flash', 'Username or email already taken.');
 
-    const data = await res.json();
+  DB.users.push({
+    id:       Date.now(),
+    username,
+    email,
+    password,
+    bio:      '',
+    joined:   new Date().toISOString().slice(0, 10)
+  });
 
-    if (!data.ok) {
-      return showFlash('signup-flash', data.error || 'Signup failed.');
-    }
-
-    showFlash('login-flash', 'Account created! Please sign in.', 'success');
-    showPage('page-login');
-  } catch (err) {
-    showFlash('signup-flash', 'Server error. Please try again.');
-  }
+  showFlash('login-flash', 'Account created! Please sign in.', 'success');
+  showPage('page-login');
 }
 
 // -----------------------------------------------------------
 // 5. LOGIN
 // -----------------------------------------------------------
-async function handleLogin() {
+function handleLogin() {
   const email    = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
 
   if (!email || !password)
     return showFlash('login-flash', 'Please fill in all fields.');
 
-  try {
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
+  const user = DB.users.find(u => u.email === email && u.password === password);
+  if (!user)
+    return showFlash('login-flash', 'Invalid email or password.');
 
-    const data = await res.json();
-
-    if (!data.ok) {
-      return showFlash('login-flash', data.error || 'Invalid email or password.');
-    }
-
-    DB.currentUser = data.user;
-    showPage('page-dashboard');
-  } catch (err) {
-    showFlash('login-flash', 'Server error. Please try again.');
-  }
+  DB.currentUser = user;
+  showPage('page-dashboard');
 }
 
 // -----------------------------------------------------------
@@ -154,52 +136,44 @@ function charCounter(inputId, counterId, max) {
 }
 
 // -----------------------------------------------------------
-// 9. DASHBOARD — fetch and render all posts
+// 9. DASHBOARD — render all posts
 // -----------------------------------------------------------
-async function renderDashboard() {
+function renderDashboard() {
   const feed = document.getElementById('feed-container');
   const name = document.getElementById('dash-username');
 
   name.textContent = DB.currentUser.username;
-  feed.innerHTML = '<p style="color:#8a8a8a;padding:1rem">Loading posts...</p>';
 
-  try {
-    const res   = await fetch('/api/posts');
-    const posts = await res.json();
-
-    if (posts.length === 0) {
-      feed.innerHTML = `
-        <div class="empty-state">
-          <p>No posts yet. Be the first to write something!</p>
-          <button class="btn btn-accent" onclick="showPage('page-write')">Write first post</button>
-        </div>`;
-      return;
-    }
-
-    // NOTE: innerHTML with user content is intentionally unsafe here
-    // so we can demonstrate XSS — fix by using escapeHtml() below
-    feed.innerHTML = posts.map(post => `
-      <div class="post-card">
-        <div class="post-meta">
-          <div class="avatar">${post.username[0].toUpperCase()}</div>
-          <span class="post-author">${post.username}</span>
-          <span class="dot">•</span>
-          <span class="post-date">${post.date}</span>
-        </div>
-        <div class="post-title">${post.title}</div>
-        <div class="post-preview">${post.content.slice(0, 200)}${post.content.length > 200 ? '...' : ''}</div>
-      </div>
-    `).join('');
-
-  } catch (err) {
-    feed.innerHTML = '<p style="color:#c8553d;padding:1rem">Failed to load posts.</p>';
+  if (DB.posts.length === 0) {
+    feed.innerHTML = `
+      <div class="empty-state">
+        <p>No posts yet. Be the first to write something!</p>
+        <button class="btn btn-accent" onclick="showPage('page-write')">Write first post</button>
+      </div>`;
+    return;
   }
+
+  const sorted = [...DB.posts].sort((a, b) => b.id - a.id);
+
+  // intentionally using innerHTML so XSS can be demonstrated
+  feed.innerHTML = sorted.map(post => `
+    <div class="post-card">
+      <div class="post-meta">
+        <div class="avatar">${post.username[0].toUpperCase()}</div>
+        <span class="post-author">${post.username}</span>
+        <span class="dot">•</span>
+        <span class="post-date">${post.date}</span>
+      </div>
+      <div class="post-title">${post.title}</div>
+      <div class="post-preview">${post.content.slice(0, 200)}${post.content.length > 200 ? '...' : ''}</div>
+    </div>
+  `).join('');
 }
 
 // -----------------------------------------------------------
 // 10. NEW POST
 // -----------------------------------------------------------
-async function handleNewPost() {
+function handleNewPost() {
   const title   = document.getElementById('post-title').value.trim();
   const content = document.getElementById('post-content').value.trim();
 
@@ -207,98 +181,70 @@ async function handleNewPost() {
   if (!content)            return showFlash('write-flash', 'Content is required.');
   if (content.length < 10) return showFlash('write-flash', 'Content is too short.');
 
-  try {
-    const res = await fetch('/api/posts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id:  DB.currentUser.id,
-        username: DB.currentUser.username,
-        title,
-        content,
-        date: new Date().toISOString().slice(0, 10)
-      })
-    });
+  DB.posts.push({
+    id:       Date.now(),
+    user_id:  DB.currentUser.id,
+    username: DB.currentUser.username,
+    title,
+    content,
+    date:     new Date().toISOString().slice(0, 10)
+  });
 
-    const data = await res.json();
+  document.getElementById('post-title').value   = '';
+  document.getElementById('post-content').value = '';
+  document.getElementById('post-char-count').textContent = '0 / 1000';
 
-    if (!data.ok) return showFlash('write-flash', data.error || 'Failed to publish.');
-
-    document.getElementById('post-title').value   = '';
-    document.getElementById('post-content').value = '';
-    document.getElementById('post-char-count').textContent = '0 / 1000';
-
-    showPage('page-dashboard');
-  } catch (err) {
-    showFlash('write-flash', 'Server error. Please try again.');
-  }
+  showPage('page-dashboard');
 }
 
 // -----------------------------------------------------------
-// 11. PROFILE — fetch and render user posts
+// 11. PROFILE
 // -----------------------------------------------------------
-async function renderProfile() {
-  const user = DB.currentUser;
+function renderProfile() {
+  const user  = DB.currentUser;
+  const posts = DB.posts.filter(p => p.user_id === user.id);
 
   document.getElementById('profile-initial').textContent  = user.username[0].toUpperCase();
   document.getElementById('profile-username').textContent = user.username;
   document.getElementById('profile-joined').textContent   = 'Member since ' + user.joined;
   document.getElementById('profile-bio-display').textContent = user.bio || 'No bio yet.';
+  document.getElementById('profile-post-count').textContent  = posts.length;
   document.getElementById('profile-bio-input').value = user.bio || '';
 
   const postList = document.getElementById('profile-posts');
-  postList.innerHTML = '<p style="color:#8a8a8a;padding:1rem">Loading your posts...</p>';
 
-  try {
-    const res   = await fetch(`/api/posts/user/${user.id}`);
-    const posts = await res.json();
-
-    document.getElementById('profile-post-count').textContent = posts.length;
-
-    if (posts.length === 0) {
-      postList.innerHTML = `
-        <div class="empty-state">
-          <p>You haven't written anything yet.</p>
-          <button class="btn btn-accent btn-sm" onclick="showPage('page-write')">Write now</button>
-        </div>`;
-      return;
-    }
-
-    postList.innerHTML = posts.map(post => `
-      <div class="post-card">
-        <div class="post-title">${post.title}</div>
-        <div class="post-preview">${post.content.slice(0, 150)}${post.content.length > 150 ? '...' : ''}</div>
-        <div style="font-size:11px;color:#8a8a8a;margin-top:8px;text-transform:uppercase;letter-spacing:.05em">${post.date}</div>
-      </div>
-    `).join('');
-
-  } catch (err) {
-    postList.innerHTML = '<p style="color:#c8553d;padding:1rem">Failed to load posts.</p>';
+  if (posts.length === 0) {
+    postList.innerHTML = `
+      <div class="empty-state">
+        <p>You haven't written anything yet.</p>
+        <button class="btn btn-accent btn-sm" onclick="showPage('page-write')">Write now</button>
+      </div>`;
+    return;
   }
+
+  const sorted = [...posts].sort((a, b) => b.id - a.id);
+
+  postList.innerHTML = sorted.map(post => `
+    <div class="post-card">
+      <div class="post-title">${post.title}</div>
+      <div class="post-preview">${post.content.slice(0, 150)}${post.content.length > 150 ? '...' : ''}</div>
+      <div style="font-size:11px;color:#8a8a8a;margin-top:8px;text-transform:uppercase;letter-spacing:.05em">${post.date}</div>
+    </div>
+  `).join('');
 }
 
 // -----------------------------------------------------------
 // 12. SAVE BIO
 // -----------------------------------------------------------
-async function saveBio() {
+function saveBio() {
   const bio = document.getElementById('profile-bio-input').value.trim();
+  DB.currentUser.bio = bio;
 
-  try {
-    const res  = await fetch('/api/bio', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: DB.currentUser.id, bio })
-    });
+  const user = DB.users.find(u => u.id === DB.currentUser.id);
+  if (user) user.bio = bio;
 
-    const data = await res.json();
-    if (!data.ok) return showFlash('profile-flash', 'Failed to update bio.');
-
-    DB.currentUser.bio = bio;
-    renderProfile();
-    showFlash('profile-flash', 'Bio updated!', 'success');
-  } catch (err) {
-    showFlash('profile-flash', 'Server error. Please try again.');
-  }
+  renderProfile();
+  showFlash('profile-flash', 'Bio updated!', 'success');
 }
 
 // -----------------------------------------------------------
@@ -313,20 +259,7 @@ function liveBioPreview() {
 }
 
 // -----------------------------------------------------------
-// 14. XSS DEMO HELPER
-// Use this to fix XSS — replace raw innerHTML with escapeHtml()
-// -----------------------------------------------------------
-function escapeHtml(str) {
-  return str
-    .replace(/&/g,  '&amp;')
-    .replace(/</g,  '&lt;')
-    .replace(/>/g,  '&gt;')
-    .replace(/"/g,  '&quot;')
-    .replace(/'/g,  '&#039;');
-}
-
-// -----------------------------------------------------------
-// 15. INIT
+// 14. INIT
 // -----------------------------------------------------------
 function init() {
   charCounter('post-title',   'title-char-count', 120);
